@@ -76,18 +76,27 @@ void main() async {
       print("Xatolik: $e");
     }
   });
-
-  // Audio tugmasi bosilganda
+  // Audio callback query (Yangilangan versiya)
   bot.callbackQuery(RegExp(r"audio_.*"), (ctx) async {
     try {
-      String word = ctx.callbackQuery!.data!.split('_')[1];
-      String audioUrl =
-          "https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=en&q=$word";
+      // audio_ dan keyin kelgan hamma narsani olamiz (substring ishlatish xavfsizroq)
+      String word = ctx.callbackQuery!.data!.replaceFirst('audio_', '');
 
+      // So'zni URL uchun xavfsiz shaklga keltiramiz (bo'shliqlar bo'lsa %20 qiladi)
+      String encodedWord = Uri.encodeComponent(word);
+      String audioUrl =
+          "https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=en&q=$encodedWord";
+
+      // Telegram-ga audioni yuboramiz
       await ctx.replyWithVoice(InputFile.fromUrl(audioUrl));
-      await ctx.answerCallbackQuery(text: "Ovozli xabar yuborildi");
+
+      await ctx.answerCallbackQuery(text: "Audio yuborildi 🎧");
     } catch (e) {
-      await ctx.answerCallbackQuery(text: "Audio yuklashda xatolik.");
+      print("AUDIO XATOLIGI: $e"); // Render Logs-da ko'rinadi
+      await ctx.answerCallbackQuery(text: "Audio yuklab bo'lmadi ❌");
+      await ctx.reply(
+        "Kechirasiz, ushbu so'zning talaffuzini yuklashda xatolik yuz berdi. 😔",
+      );
     }
   });
 
