@@ -7,7 +7,7 @@ RUN dart pub get
 
 COPY . .
 RUN dart pub get --offline
-RUN dart compile exe bin/english_vocab_bot.dart -o bin/english_vocab_bot
+RUN dart compile exe bin/english_vocab_bot.dart -o bin/english_bot
 
 FROM scratch
 COPY --from=build /runtime/ /
