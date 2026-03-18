@@ -3,21 +3,28 @@ import 'dart:math';
 import 'package:televerse/telegram.dart';
 import 'package:televerse/televerse.dart';
 import 'package:http/http.dart' as http;
-import 'data.dart'; // Bu fayl loyihangizda borligiga ishonch hosil qiling
+import 'data.dart';
 
 // Statistikani saqlash uchun
 Map<int, Map<String, int>> userStats = {};
 const int totalQuestionsPerSession = 5;
 
 void main() async {
-  // 1. RENDER PORT FIX (Timed out bo'lib qolmasligi uchun)
+  // 1. RENDER VA CRON-JOB UCHUN SERVER (UYG'OTISH TIZIMI)
   final port = int.parse(Platform.environment['PORT'] ?? '8080');
   final server = await HttpServer.bind(InternetAddress.anyIPv4, port);
-  server.listen(
-    (HttpRequest req) => req.response
-      ..write('Bot is live!')
-      ..close(),
-  );
+
+  server.listen((HttpRequest req) {
+    // Cron-job.org so'rov yuborganida bizga logda ko'rinadi
+    print("Ping qabul qilindi: ${DateTime.now()} - Bot uyg'oq!");
+
+    req.response
+      ..statusCode = HttpStatus.ok
+      ..write('Bot is live and awake!')
+      ..close();
+  });
+
+  print('Server $port-portda ishlamoqda...');
 
   // 2. BOT TOKENNI OLISH
   final String botToken =
@@ -37,7 +44,10 @@ void main() async {
   );
 
   bot.command('start', (ctx) async {
-    await ctx.reply("Salom Mirkomil! 🇬🇧", replyMarkup: mainKeyboard);
+    await ctx.reply(
+      "Salom Mirkomil! 🇬🇧 Bot uyg'oq va xizmatingizda.",
+      replyMarkup: mainKeyboard,
+    );
   });
 
   // --- AUDIO TALAFUZ QISMI ---
@@ -51,9 +61,7 @@ void main() async {
         Uri.parse(url),
         headers: {"User-Agent": "Mozilla/5.0"},
       );
-
       if (response.statusCode == 200) {
-        // InputFile.fromBytes mana shunday yozilishi kerak
         await ctx.replyWithVoice(
           InputFile.fromBytes(response.bodyBytes, name: "$word.mp3"),
         );
@@ -130,7 +138,7 @@ void main() async {
   bot.start();
 }
 
-// SAVOL YUBORISH
+// SAVOL YUBORISH FUNKSIYASI
 Future<void> sendNextQuestion(
   Context ctx,
   int userId, {
