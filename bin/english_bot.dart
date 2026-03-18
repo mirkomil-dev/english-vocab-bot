@@ -3,14 +3,14 @@ import 'dart:math';
 import 'package:televerse/telegram.dart';
 import 'package:televerse/televerse.dart';
 import 'package:http/http.dart' as http;
-import 'data.dart'; // data.dart faylingizda wordsData borligiga ishonch hosil qiling
+import 'data.dart'; // Bu fayl loyihangizda borligiga ishonch hosil qiling
 
-// 1. GLOBAL O'ZGARUVCHILAR
+// Statistikani saqlash uchun
 Map<int, Map<String, int>> userStats = {};
 const int totalQuestionsPerSession = 5;
 
 void main() async {
-  // RENDER PORT FIX
+  // 1. RENDER PORT FIX (Timed out bo'lib qolmasligi uchun)
   final port = int.parse(Platform.environment['PORT'] ?? '8080');
   final server = await HttpServer.bind(InternetAddress.anyIPv4, port);
   server.listen(
@@ -19,11 +19,12 @@ void main() async {
       ..close(),
   );
 
+  // 2. BOT TOKENNI OLISH
   final String botToken =
-      Platform.environment['BOT_TOKEN'] ?? 'TOKENNI_RENDERDA_SOZLANG';
+      Platform.environment['BOT_TOKEN'] ?? 'TOKEN_NI_RENDERDA_YAZING';
   Bot bot = Bot(botToken);
 
-  // ASOSIY MENYU
+  // ASOSIY TUGMALAR
   var mainKeyboard = ReplyKeyboardMarkup(
     keyboard: [
       [
@@ -36,13 +37,35 @@ void main() async {
   );
 
   bot.command('start', (ctx) async {
-    await ctx.reply(
-      "Salom Mirkomil! Ingliz tili botiga xush kelibsiz. 🇬🇧",
-      replyMarkup: mainKeyboard,
-    );
+    await ctx.reply("Salom Mirkomil! 🇬🇧", replyMarkup: mainKeyboard);
   });
 
-  // --- YANGI SO'Z VA AUDIO ---
+  // --- AUDIO TALAFUZ QISMI ---
+  bot.callbackQuery(RegExp(r"audio_.*"), (ctx) async {
+    try {
+      String word = ctx.callbackQuery!.data!.replaceFirst('audio_', '');
+      String url =
+          "https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=en&q=${Uri.encodeComponent(word)}";
+
+      var response = await http.get(
+        Uri.parse(url),
+        headers: {"User-Agent": "Mozilla/5.0"},
+      );
+
+      if (response.statusCode == 200) {
+        // InputFile.fromBytes mana shunday yozilishi kerak
+        await ctx.replyWithVoice(
+          InputFile.fromBytes(response.bodyBytes, name: "$word.mp3"),
+        );
+      }
+      await ctx.answerCallbackQuery();
+    } catch (e) {
+      print("Audio xatosi: $e");
+      await ctx.answerCallbackQuery(text: "Xatolik yuz berdi ❌");
+    }
+  });
+
+  // --- YANGI SO'Z BERISH ---
   bot.hears(RegExp(r"Yangi so'z"), (ctx) async {
     final word = wordsData[Random().nextInt(wordsData.length)];
     String msg =
@@ -51,7 +74,7 @@ void main() async {
       inlineKeyboard: [
         [
           InlineKeyboardButton(
-            text: "🔊 Talaffuz",
+            text: "🔊 Eshitish",
             callbackData: "audio_${word['en']}",
           ),
         ],
@@ -60,35 +83,14 @@ void main() async {
     await ctx.reply(msg, replyMarkup: kb, parseMode: ParseMode.markdown);
   });
 
-  bot.callbackQuery(RegExp(r"audio_.*"), (ctx) async {
-    try {
-      String word = ctx.callbackQuery!.data!.split('_')[1];
-      var response = await http.get(
-        Uri.parse(
-          "https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=en&q=$word",
-        ),
-        headers: {"User-Agent": "Mozilla/5.0"},
-      );
-      if (response.statusCode == 200) {
-        await ctx.replyWithVoice(
-          InputFile.fromBytes(response.bodyBytes, name: "$word.mp3"),
-        );
-      }
-      await ctx.answerCallbackQuery();
-    } catch (e) {
-      await ctx.answerCallbackQuery(text: "Xato yuz berdi ❌");
-    }
-  });
-
-  // --- 🧠 O'ZIMNI SINASH (TEST MANTIQI) ---
+  // --- O'ZIMNI SINASH (TEST) ---
   bot.hears(RegExp(r"O'zimni sinash"), (ctx) async {
     final userId = ctx.from?.id ?? 0;
-    // Har safar yangi test boshlanganda hisobni nolga tushiramiz
     userStats[userId] = {
-      "correct": userStats[userId]?["correct"] ?? 0, // Umumiy to'g'rilar qoladi
-      "wrong": userStats[userId]?["wrong"] ?? 0, // Umumiy xatolar qoladi
-      "session_score": 0, // Joriydagi ball 0
-      "current_index": 0, // Nechanchi savolligi 0
+      "correct": 0,
+      "wrong": 0,
+      "current_index": 0,
+      "score": 0,
     };
     await sendNextQuestion(ctx, userId);
   });
@@ -97,70 +99,49 @@ void main() async {
     final userId = ctx.from?.id ?? 0;
     if (userStats[userId] == null) return;
 
-    final data = ctx.callbackQuery!.data;
-
-    // Javobni tekshirish
-    if (data == "quiz_correct") {
-      userStats[userId]!["session_score"] =
-          userStats[userId]!["session_score"]! + 1;
+    if (ctx.callbackQuery?.data == "quiz_correct") {
+      userStats[userId]!["score"] = userStats[userId]!["score"]! + 1;
       userStats[userId]!["correct"] = userStats[userId]!["correct"]! + 1;
-      await ctx.answerCallbackQuery(text: "✅ To'g'ri!");
     } else {
       userStats[userId]!["wrong"] = userStats[userId]!["wrong"]! + 1;
-      await ctx.answerCallbackQuery(text: "❌ Noto'g'ri!");
     }
 
-    // Savol raqamini oshirish
     userStats[userId]!["current_index"] =
         userStats[userId]!["current_index"]! + 1;
 
-    // Keyingi savolga o'tish yoki tugatish
     if (userStats[userId]!["current_index"]! < totalQuestionsPerSession) {
       await sendNextQuestion(ctx, userId, isEdit: true);
     } else {
-      int finalScore = userStats[userId]!["session_score"]!;
       await ctx.editMessageText(
-        "🏁 *Test yakunlandi!*\n\nSiz 5 tadan *$finalScore* ta savolga to'g'ri javob berdingiz.",
-        parseMode: ParseMode.markdown,
+        "🏁 Tugadi! Ball: ${userStats[userId]!["score"]} / $totalQuestionsPerSession",
       );
     }
+    await ctx.answerCallbackQuery();
   });
 
-  // --- 📊 MENING NATIJAM ---
+  // --- STATISTIKA ---
   bot.hears(RegExp(r"Mening natijam"), (ctx) async {
-    final userId = ctx.from?.id ?? 0;
-    final stats = userStats[userId] ?? {"correct": 0, "wrong": 0};
-
-    String msg =
-        "📊 *Sizning statistikangiz:*\n\n"
-        "✅ Jami to'g'ri javoblar: ${stats['correct']}\n"
-        "❌ Jami xato javoblar: ${stats['wrong']}\n\n"
-        "O'rganishda davom eting! 💪";
-    await ctx.reply(msg, parseMode: ParseMode.markdown);
+    final stats = userStats[ctx.from?.id] ?? {"correct": 0, "wrong": 0};
+    await ctx.reply(
+      "📊 Jami:\n✅ To'g'ri: ${stats["correct"]}\n❌ Xato: ${stats["wrong"]}",
+    );
   });
 
   bot.start();
 }
 
-// SAVOL YUBORISH FUNKSIYASI
+// SAVOL YUBORISH
 Future<void> sendNextQuestion(
   Context ctx,
   int userId, {
   bool isEdit = false,
 }) async {
-  final random = Random();
-  final correct = wordsData[random.nextInt(wordsData.length)];
-
-  // Variantlarni aralashtirish
-  List<Map<String, String>> shuffled = List.from(wordsData)..shuffle();
-  shuffled.removeWhere((w) => w['en'] == correct['en']);
-
+  final correct = wordsData[Random().nextInt(wordsData.length)];
   List<String> options = [
     correct['en']!,
-    shuffled[0]['en']!,
-    shuffled[1]['en']!,
-  ];
-  options.shuffle();
+    wordsData[Random().nextInt(wordsData.length)]['en']!,
+    wordsData[Random().nextInt(wordsData.length)]['en']!,
+  ]..shuffle();
 
   var kb = InlineKeyboardMarkup(
     inlineKeyboard: [
@@ -174,17 +155,9 @@ Future<void> sendNextQuestion(
     ],
   );
 
-  int qNumber = userStats[userId]!["current_index"]! + 1;
-  String txt =
-      "❓ *$qNumber / $totalQuestionsPerSession savol*\n\n🇺🇿 '${correct['uz']}' so'zining inglizchasi nima?";
-
-  if (isEdit) {
-    await ctx.editMessageText(
-      txt,
-      replyMarkup: kb,
-      parseMode: ParseMode.markdown,
-    );
-  } else {
-    await ctx.reply(txt, replyMarkup: kb, parseMode: ParseMode.markdown);
-  }
+  String text = "❓ '${correct['uz']}' inglizcha nima?";
+  if (isEdit)
+    await ctx.editMessageText(text, replyMarkup: kb);
+  else
+    await ctx.reply(text, replyMarkup: kb);
 }
